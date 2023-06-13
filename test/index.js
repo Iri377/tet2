@@ -549,25 +549,7 @@ describe("mongoose_delete with options: { deletedBy : true, deletedByType: Strin
     });
 });
 
-describe("check not overridden static methods", function () {
-    var TestSchema = new Schema({name: String}, { collection: 'mongoose_delete_test' });
-    TestSchema.plugin(mongoose_delete);
-    var TestModel = mongoose.model('Test4', TestSchema);
-
-    beforeEach(async function () {
-        await TestModel.create(
-          [
-              { name: 'Obi-Wan Kenobi', deleted: true },
-              { name: 'Darth Vader'},
-              { name: 'Luke Skywalker'}
-          ]
-        );
-    });
-
-    afterEach(async function () {
-        await mongoose.connection.db.dropCollection("mongoose_delete_test");
-    });
-
+function runOverriddenStaticMethodsTests (TestModel) {
     it("count() -> should return 3 documents", async function () {
         try {
             const count = await TestModel.count();
@@ -586,21 +568,10 @@ describe("check not overridden static methods", function () {
         }
     });
 
-
     it("find() -> should return 3 documents", async function () {
         try {
             const documents = await TestModel.find();
             documents.length.should.equal(3);
-        } catch (err) {
-            should.not.exist(err);
-        }
-    });
-
-    it("findOne() -> should return 1 deleted document", async function () {
-        try {
-            const doc = await TestModel.findOne({name: 'Obi-Wan Kenobi'});
-            expect(doc).not.to.be.null;
-            doc.deleted.should.equal(true);
         } catch (err) {
             should.not.exist(err);
         }
@@ -667,26 +638,73 @@ describe("check not overridden static methods", function () {
             should.not.exist(err);
         }
     });
-});
+}
 
-describe("check overridden static methods: { overrideMethods: 'all' }", function () {
-    var TestSchema = new Schema({name: String}, {collection: 'mongoose_delete_test'});
-    TestSchema.plugin(mongoose_delete, {overrideMethods: 'all'});
-    var TestModel = mongoose.model('Test5', TestSchema);
+describe("check not overridden static methods", function () {
+    var TestSchema = new Schema({name: String}, { collection: 'mongoose_delete_test' });
+    TestSchema.plugin(mongoose_delete);
+    var TestModel = mongoose.model('Test4', TestSchema);
 
     beforeEach(async function () {
         await TestModel.create(
           [
-              {name: 'Obi-Wan Kenobi', deleted: true},
-              {name: 'Darth Vader'},
-              {name: 'Luke Skywalker', deleted: true}
-          ]);
+              { name: 'Obi-Wan Kenobi', deleted: true },
+              { name: 'Darth Vader'},
+              { name: 'Luke Skywalker'}
+          ]
+        );
     });
 
     afterEach(async function () {
         await mongoose.connection.db.dropCollection("mongoose_delete_test");
     });
 
+    runOverriddenStaticMethodsTests(TestModel);
+
+    it("findOne() -> should return 1 deleted document", async function () {
+        try {
+            const doc = await TestModel.findOne({name: 'Obi-Wan Kenobi'});
+            expect(doc).not.to.be.null;
+            doc.deleted.should.equal(true);
+        } catch (err) {
+            should.not.exist(err);
+        }
+    });
+});
+
+describe("check not overridden static methods: { fieldNameDeleted: 'izbrisano' }", function () {
+    var TestSchema = new Schema({name: String}, { collection: 'mongoose_delete_test' });
+    TestSchema.plugin(mongoose_delete, { fieldNameDeleted: 'izbrisano' });
+    var TestModel = mongoose.model('Test44', TestSchema);
+
+    beforeEach(async function () {
+        await TestModel.create(
+          [
+              { name: 'Obi-Wan Kenobi', izbrisano: true },
+              { name: 'Darth Vader'},
+              { name: 'Luke Skywalker'}
+          ]
+        );
+    });
+
+    afterEach(async function () {
+        await mongoose.connection.db.dropCollection("mongoose_delete_test");
+    });
+
+    runOverriddenStaticMethodsTests(TestModel);
+
+    it("findOne() -> should return 1 deleted document", async function () {
+        try {
+            const doc = await TestModel.findOne({name: 'Obi-Wan Kenobi'});
+            expect(doc).not.to.be.null;
+            doc.izbrisano.should.equal(true);
+        } catch (err) {
+            should.not.exist(err);
+        }
+    });
+});
+
+function runOverrideAllMethodsTests(TestModel) {
     it("countDocuments() -> should return 1 documents", async function () {
         try {
             const count = await TestModel.countDocuments();
@@ -1002,6 +1020,48 @@ describe("check overridden static methods: { overrideMethods: 'all' }", function
             should.not.exist(err);
         }
     });
+}
+
+describe("check overridden static methods: { overrideMethods: 'all' }", function () {
+    var TestSchema = new Schema({name: String}, {collection: 'mongoose_delete_test'});
+    TestSchema.plugin(mongoose_delete, {overrideMethods: 'all'});
+    var TestModel = mongoose.model('Test5', TestSchema);
+
+    beforeEach(async function () {
+        await TestModel.create(
+          [
+              {name: 'Obi-Wan Kenobi', deleted: true},
+              {name: 'Darth Vader'},
+              {name: 'Luke Skywalker', deleted: true}
+          ]);
+    });
+
+    afterEach(async function () {
+        await mongoose.connection.db.dropCollection("mongoose_delete_test");
+    });
+
+    runOverrideAllMethodsTests(TestModel);
+});
+
+describe("check overridden static methods: { overrideMethods: 'all', fieldNameDeleted: 'izbrisano' }", function () {
+    var TestSchema = new Schema({name: String}, {collection: 'mongoose_delete_test'});
+    TestSchema.plugin(mongoose_delete, {overrideMethods: 'all', fieldNameDeleted: 'izbrisano'});
+    var TestModel = mongoose.model('Test555', TestSchema);
+
+    beforeEach(async function () {
+        await TestModel.create(
+          [
+              {name: 'Obi-Wan Kenobi', izbrisano: true},
+              {name: 'Darth Vader'},
+              {name: 'Luke Skywalker', izbrisano: true}
+          ]);
+    });
+
+    afterEach(async function () {
+        await mongoose.connection.db.dropCollection("mongoose_delete_test");
+    });
+
+    runOverrideAllMethodsTests(TestModel);
 });
 
 describe("check the existence of override static methods: { overrideMethods: true }", function () {
@@ -1973,4 +2033,3 @@ describe("model validation on restore (default): { validateBeforeRestore: true }
         }
     });
 });
-

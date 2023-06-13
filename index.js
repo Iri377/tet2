@@ -3,6 +3,18 @@ var mongoose = require('mongoose'),
     Model = mongoose.Model,
     util = require('util');
 
+function parseFieldNames (options) {
+    var fieldNameDeleted = options.fieldNameDeleted || 'deleted';
+    var fieldNameDeletedAt = options.fieldNameDeletedAt || 'deletedAt'
+    var fieldNameDeletedBy = options.fieldNameDeletedBy || 'deletedBy'
+
+    return {
+        fieldNameDeleted,
+        fieldNameDeletedAt,
+        fieldNameDeletedBy
+    }
+}
+
 /**
  * This code is taken from official mongoose repository
  * https://github.com/Automattic/mongoose/blob/master/lib/query.js#L3847-L3873
@@ -43,9 +55,11 @@ function parseUpdateArguments (conditions, doc, options, callback) {
 }
 
 function parseIndexFields (options) {
+    var { fieldNameDeleted, fieldNameDeletedAt, fieldNameDeletedBy } = parseFieldNames(options);
+
     var indexFields = {
-        deleted: false,
-        deletedAt: false,
+        [fieldNameDeleted]: false,
+        [fieldNameDeletedAt]: false,
         deletedBy: false
     };
 
@@ -54,17 +68,17 @@ function parseIndexFields (options) {
     }
 
     if ((typeof options.indexFields === 'string' || options.indexFields instanceof String) && options.indexFields === 'all') {
-        indexFields.deleted = indexFields.deletedAt = indexFields.deletedBy = true;
+        indexFields[fieldNameDeleted] = indexFields[fieldNameDeletedAt] = indexFields.deletedBy = true;
     }
 
     if (typeof(options.indexFields) === "boolean" && options.indexFields === true) {
-        indexFields.deleted = indexFields.deletedAt = indexFields.deletedBy = true;
+        indexFields[fieldNameDeleted] = indexFields[fieldNameDeletedAt] = indexFields.deletedBy = true;
     }
 
     if (Array.isArray(options.indexFields)) {
-        indexFields.deleted = options.indexFields.indexOf('deleted') > -1;
-        indexFields.deletedAt = options.indexFields.indexOf('deletedAt') > -1;
-        indexFields.deletedBy = options.indexFields.indexOf('deletedBy') > -1;
+        indexFields[fieldNameDeleted] = options.indexFields.indexOf(fieldNameDeleted) > -1;
+        indexFields[fieldNameDeletedAt] = options.indexFields.indexOf(fieldNameDeletedAt) > -1;
+        indexFields[fieldNameDeletedBy] = options.indexFields.indexOf(fieldNameDeletedBy) > -1;
     }
 
     return indexFields;
@@ -77,6 +91,12 @@ function createSchemaObject (typeKey, typeValue, options) {
 
 module.exports = function (schema, options) {
     options = options || {};
+
+    // Add plugin specific option to the schema object so we can easily use it in methods and statics
+    schema.options.softDeleteOptions = options;
+
+    var { fieldNameDeleted, fieldNameDeletedAt, fieldNameDeletedBy } = parseFieldNames(options);
+
     var indexFields = parseIndexFields(options);
 
     var typeKey = schema.options.typeKey;
@@ -92,14 +112,15 @@ module.exports = function (schema, options) {
         }
     }
 
-    schema.add({ deleted: createSchemaObject(typeKey, Boolean, { default: false, index: indexFields.deleted }) });
+    // schema.add({ deleted: createSchemaObject(typeKey, Boolean, { default: false, index: indexFields.deleted }) });
+    schema.add({ [fieldNameDeleted]: createSchemaObject(typeKey, Boolean, { default: false, index: indexFields[fieldNameDeleted] }) });
 
     if (options.deletedAt === true) {
-        schema.add({ deletedAt: createSchemaObject(typeKey, Date, { index: indexFields.deletedAt }) });
+        schema.add({ [fieldNameDeletedAt]: createSchemaObject(typeKey, Date, { index: indexFields[fieldNameDeletedAt] }) });
     }
 
     if (options.deletedBy === true) {
-        schema.add({ deletedBy: createSchemaObject(typeKey, options.deletedByType || Schema.Types.ObjectId, { index: indexFields.deletedBy }) });
+        schema.add({ [fieldNameDeletedBy]: createSchemaObject(typeKey, options.deletedByType || Schema.Types.ObjectId, { index: indexFields[fieldNameDeletedBy] }) });
     }
 
     var use$neOperator = true;
@@ -108,8 +129,8 @@ module.exports = function (schema, options) {
     }
 
     schema.pre('save', function (next) {
-        if (!this.deleted) {
-            this.deleted = false;
+        if (!this[fieldNameDeleted]) {
+            this[fieldNameDeleted] = false;
         }
         next();
     });
@@ -139,7 +160,7 @@ module.exports = function (schema, options) {
             schema.pre('aggregate', function() {
                 var firstMatch = this.pipeline()[0];
 
-                if(firstMatch.$match?.deleted?.$ne !== false){
+                if(firstMatch.$match?.[fieldNameDeleted]?.$ne !== false){
                     if(firstMatch.$match?.showAllDocuments === 'true'){
                         var {showAllDocuments, ...replacement} = firstMatch.$match;
                         this.pipeline().shift();
@@ -147,7 +168,7 @@ module.exports = function (schema, options) {
                             this.pipeline().unshift({ $match: replacement });
                         }
                     }else{
-                        this.pipeline().unshift({ $match: { deleted: { '$ne': true } } });
+                        this.pipeline().unshift({ $match: { [fieldNameDeleted]: { '$ne': true } } });
                     }
                 }
             });
@@ -161,18 +182,18 @@ module.exports = function (schema, options) {
                     var query = Model[modelMethodName].apply(this, arguments);
                     if (!arguments[2] || arguments[2].withDeleted !== true) {
                         if (use$neOperator) {
-                            query.where('deleted').ne(true);
+                            query.where(fieldNameDeleted).ne(true);
                         } else {
-                            query.where({deleted: false});
+                            query.where({[fieldNameDeleted]: false});
                         }
                     }
                     return query;
                 };
                 schema.statics[method + 'Deleted'] = function () {
                     if (use$neOperator) {
-                        return Model[modelMethodName].apply(this, arguments).where('deleted').ne(false);
+                        return Model[modelMethodName].apply(this, arguments).where(fieldNameDeleted).ne(false);
                     } else {
-                        return Model[modelMethodName].apply(this, arguments).where({deleted: true});
+                        return Model[modelMethodName].apply(this, arguments).where({[fieldNameDeleted]: true});
                     }
                 };
                 schema.statics[method + 'WithDeleted'] = function () {
@@ -183,7 +204,7 @@ module.exports = function (schema, options) {
                     schema.statics[method + 'Deleted'] = function () {
                         var args = [];
                         Array.prototype.push.apply(args, arguments);
-                        var match = { $match : { deleted : {'$ne': false } } };
+                        var match = { $match : { [fieldNameDeleted] : {'$ne': false } } };
                         arguments.length ? args[0].unshift(match) : args.push([match]);
                         return Model[method].apply(this, args);
                     };
@@ -200,9 +221,9 @@ module.exports = function (schema, options) {
                         var args = parseUpdateArguments.apply(undefined, arguments);
 
                         if (use$neOperator) {
-                            args[0].deleted = {'$ne': true};
+                            args[0][fieldNameDeleted] = {'$ne': true};
                         } else {
-                            args[0].deleted = false;
+                            args[0][fieldNameDeleted] = false;
                         }
 
                         return Model[method].apply(this, args);
@@ -212,9 +233,9 @@ module.exports = function (schema, options) {
                         var args = parseUpdateArguments.apply(undefined, arguments);
 
                         if (use$neOperator) {
-                            args[0].deleted = {'$ne': false};
+                            args[0][fieldNameDeleted] = {'$ne': false};
                         } else {
-                            args[0].deleted = true;
+                            args[0][fieldNameDeleted] = true;
                         }
 
                         return Model[method].apply(this, args);
@@ -229,19 +250,21 @@ module.exports = function (schema, options) {
     }
 
     schema.methods.delete = function (deletedBy, cb) {
+        var { fieldNameDeleted, fieldNameDeletedAt, fieldNameDeletedBy } = parseFieldNames(schema.options.softDeleteOptions);
+
         if (typeof deletedBy === 'function') {
           cb = deletedBy;
           deletedBy = null;
         }
 
-        this.deleted = true;
+        this[fieldNameDeleted] = true;
 
-        if (schema.path('deletedAt')) {
-            this.deletedAt = new Date();
+        if (schema.path(fieldNameDeletedAt)) {
+            this[fieldNameDeletedAt] = new Date();
         }
 
-        if (schema.path('deletedBy')) {
-            this.deletedBy = deletedBy;
+        if (schema.path(fieldNameDeletedBy)) {
+            this[fieldNameDeletedBy] = deletedBy;
         }
 
         if (options.validateBeforeDelete === false) {
@@ -252,6 +275,8 @@ module.exports = function (schema, options) {
     };
 
     schema.statics.delete =  function (conditions, deletedBy, callback) {
+        var { fieldNameDeleted, fieldNameDeletedAt, fieldNameDeletedBy } = parseFieldNames(schema.options.softDeleteOptions);
+
         if (typeof deletedBy === 'function') {
             callback = deletedBy;
             conditions = conditions;
@@ -263,15 +288,15 @@ module.exports = function (schema, options) {
         }
 
         var doc = {
-            deleted: true
+            [fieldNameDeleted]: true
         };
 
-        if (schema.path('deletedAt')) {
-            doc.deletedAt = new Date();
+        if (schema.path(fieldNameDeletedAt)) {
+            doc[fieldNameDeletedAt] = new Date();
         }
 
-        if (schema.path('deletedBy')) {
-            doc.deletedBy = deletedBy;
+        if (schema.path(fieldNameDeletedBy)) {
+            doc[fieldNameDeletedBy] = deletedBy;
         }
 
         return updateDocumentsByQuery(this, conditions, doc, callback);
@@ -291,9 +316,11 @@ module.exports = function (schema, options) {
     };
 
     schema.methods.restore = function (callback) {
-        this.deleted = false;
-        this.deletedAt = undefined;
-        this.deletedBy = undefined;
+        var { fieldNameDeleted, fieldNameDeletedAt, fieldNameDeletedBy } = parseFieldNames(schema.options.softDeleteOptions);
+
+        this[fieldNameDeleted] = false;
+        this[fieldNameDeletedAt] = undefined;
+        this[fieldNameDeletedBy] = undefined;
 
         if (options.validateBeforeRestore === false) {
             return this.save({ validateBeforeSave: false }, callback);
@@ -303,6 +330,8 @@ module.exports = function (schema, options) {
     };
 
     schema.statics.restore =  function (conditions, callback) {
+        var { fieldNameDeleted, fieldNameDeletedAt, fieldNameDeletedBy } = parseFieldNames(schema.options.softDeleteOptions);
+
         if (typeof conditions === 'function') {
             callback = conditions;
             conditions = {};
@@ -310,9 +339,9 @@ module.exports = function (schema, options) {
 
         var doc = {
             $unset:{
-                deleted: true,
-                deletedAt: true,
-                deletedBy: true
+                [fieldNameDeleted]: true,
+                [fieldNameDeletedAt]: true,
+                [fieldNameDeletedBy]: true
             }
         };
 
